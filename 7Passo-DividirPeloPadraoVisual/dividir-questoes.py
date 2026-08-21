@@ -1,132 +1,46 @@
 from PIL import Image
-import os
+import numpy as np
 
-def converter_cor_gimp_para_rgb(gimp_r, gimp_g, gimp_b):
-    """
-    Converte valores do GIMP (0-100) para RGB (0-255)
-    """
-    r = int((gimp_r / 100) * 255)
-    g = int((gimp_g / 100) * 255)
-    b = int((gimp_b / 100) * 255)
-    return (r, g, b)
-
-def encontrar_faixa_cinza(imagem, cor_alvo, tolerancia=20, altura_faixa=13):
-    """
-    Encontra posições onde há uma faixa cinza horizontal.
-    """
-    largura, altura = imagem.size
-    pixels = imagem.load()
-
-    posicoes_corte = []
-
-    # MUDANÇA: Em vez de checar a borda direita (largura - 2), 
-    # checa o centro horizontal da página inteira para evitar margens.
-    x_verificacao = largura // 2
-
-    y = 0
-    while y < altura - altura_faixa:
-
-        faixa_encontrada = True
-
-        for dy in range(altura_faixa):
-            # MUDANÇA: Usa a coordenada x centralizada
-            pixel = pixels[x_verificacao, y + dy]
-
-            if len(pixel) == 4:
-                r, g, b, a = pixel
-            else:
-                r, g, b = pixel[:3]
-
-            if (abs(r - cor_alvo[0]) > tolerancia or
-                abs(g - cor_alvo[1]) > tolerancia or
-                abs(b - cor_alvo[2]) > tolerancia):
-                faixa_encontrada = False
-                break
-
-        if faixa_encontrada:
-            # corta 15 pixels acima do início da faixa
-            posicao_corte = max(0, y - 15)
-            posicoes_corte.append(posicao_corte)
-
-            print(f"Faixa cinza encontrada em y={y}, cortando em y={posicao_corte}")
-            y += altura_faixa
-        else:
-            y += 1
-
-    return posicoes_corte
-
-
-def dividir_imagem_por_faixas(caminho_imagem, pasta_saida, cor_alvo):
-    imagem = Image.open(caminho_imagem)
-    largura, altura = imagem.size
-
-    print(f"Imagem carregada: {largura}x{altura} pixels")
-
-    posicoes_corte = encontrar_faixa_cinza(imagem, cor_alvo)
-
-    if not posicoes_corte:
-        print("Nenhuma faixa cinza encontrada!")
-        return
-
-    print(f"Encontradas {len(posicoes_corte)} faixas cinza")
-
-    os.makedirs(pasta_saida, exist_ok=True)
-
-    posicao_anterior = 0
-
-    for i, posicao_corte in enumerate(posicoes_corte):
-        if posicao_corte <= posicao_anterior:
+def cortar_por_linhas_cinzas(caminho_imagem, tolerancia_cinza=50, altura_minima_secao=20):
+    # Carrega a imagem e converte para escala de cinza
+    img = Image.open(caminho_imagem)
+    img_gray = img.convert('L')
+    matriz = np.array(img_gray)
+    
+    largura, altura = img.size
+    
+    # Identifica linhas onde a média dos pixels indica uma linha divisória escura/cinza
+    # Ajuste o valor conforme a intensidade da linha cinza
+    medias_linhas = np.mean(matriz, axis=1)
+    
+    # Encontra os índices das linhas divisórias
+    linhas_corte = [0]
+    for y in range(1, altura - 1):
+        # Se a linha for significativamente mais escura que o fundo
+        if medias_linhas[y] < tolerancia_cinza:
+            if y - linhas_corte[-1] > altura_minima_secao:
+                linhas_corte.append(y)
+                
+    linhas_corte.append(altura)
+    
+    # Realiza os cortes e salva cada questão
+    imagens_cortadas = []
+    i = 1
+    for idx in range(len(linhas_corte) - 1):
+        y_inicio = linhas_corte[idx]
+        y_fim = linhas_corte[idx + 1]
+        
+        # Ignora seções muito pequenas
+        if y_fim - y_inicio < altura_minima_secao:
             continue
+            
+        caixa = (0, y_inicio, largura, y_fim)
+        questao = img.crop(caixa)
+        nome_arquivo = f"questao_{i}.png"
+        questao.save(nome_arquivo)
+        imagens_cortadas.append(nome_arquivo)
+        print(f"Salvo: {nome_arquivo}")
+        i += 1
 
-        area_corte = (
-            0,
-            posicao_anterior,
-            largura,
-            posicao_corte
-        )
-
-        secao = imagem.crop(area_corte)
-        caminho = os.path.join(
-            pasta_saida,
-            f"parte_{i+1:03d}.png"
-        )
-        secao.save(caminho)
-        print(f"Salvo: {caminho}")
-
-        # pula a faixa cinza (13 px)
-        posicao_anterior = posicao_corte + 13
-
-    if posicao_anterior < altura:
-        area_corte = (
-            0,
-            posicao_anterior,
-            largura,
-            altura
-        )
-
-        secao = imagem.crop(area_corte)
-        caminho = os.path.join(
-            pasta_saida,
-            f"parte_{len(posicoes_corte)+1:03d}.png"
-        )
-        secao.save(caminho)
-        print(f"Salvo: {caminho}")
-
-
-if __name__ == "__main__":
-    # MUDANÇA: Atualize o nome do arquivo de entrada e da pasta de saída se necessário
-    caminho_imagem = "inteiras_concatenadas_verticalmente.png"
-    pasta_saida = "inteiras.png" 
-
-    # Coloque aqui a cor medida no GIMP da faixa cinza.
-    cor_do_padrao = converter_cor_gimp_para_rgb(79, 79, 79)
-
-    print(f"Cor convertida: RGB{cor_do_padrao}")
-
-    dividir_imagem_por_faixas(
-        caminho_imagem,
-        pasta_saida,
-        cor_do_padrao
-    )
-
-    print("Divisão concluída!")
+# Substitua pelo nome do seu arquivo de imagem
+cortar_por_linhas_cinzas("colunas_concatenadas_verticalmente.png")
